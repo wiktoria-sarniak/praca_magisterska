@@ -32,11 +32,6 @@ model.to(device)
 #getting data from the dataset and its preparation
 dataset = load_dataset("google/code_x_glue_cc_code_refinement", "small")
 
-for split in ["train", "validation", "test"]:
-    print(f"\nColumns in {split} split:")
-    print(dataset[split].column_names)
-
-
 small_train = dataset["train"].shuffle(seed=42) #.select(range(100))
 small_eval  = dataset["validation"].shuffle(seed=42) #.select(range(10))
 small_test  = dataset["test"].shuffle(seed=42) #.select(range(10))
