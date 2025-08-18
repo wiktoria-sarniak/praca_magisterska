@@ -11,12 +11,27 @@ import os
 from datetime import datetime
 import json
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from transformers import set_seed
+import random
+
 
 #creating a directory to store the results for the current run
-current_time = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-dir_name = f"run_{current_time}"
-dir_name = os.path.join("results", f"run_{current_time}")
+#current_time = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+#dir_name = f"run_{current_time}"
+dir_name = "exp_18"
+dir_name = os.path.join("results", dir_name)
 os.makedirs(dir_name, exist_ok=True)
+
+
+#custom_seed = random.randint(0, 2**32 - 1) # randomizing seed
+custom_seed = 50 #keeping the same seed for comparisons
+random.seed(custom_seed)
+
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(custom_seed)
+set_seed(custom_seed)
+with open(os.path.join(dir_name, "seed.txt"), "w") as f:
+    f.write(str(custom_seed))
 
 
 #Model and tokenizer
@@ -32,9 +47,9 @@ model.to(device)
 #getting data from the dataset and its preparation
 dataset = load_dataset("google/code_x_glue_cc_code_refinement", "small")
 
-small_train = dataset["train"].shuffle(seed=42) #.select(range(100))
-small_eval  = dataset["validation"].shuffle(seed=42) #.select(range(10))
-small_test  = dataset["test"].shuffle(seed=42) #.select(range(10))
+small_train = dataset["train"].shuffle(seed=42).select(range(800))
+small_eval  = dataset["validation"].shuffle(seed=42).select(range(100))
+small_test  = dataset["test"].shuffle(seed=42).select(range(100))
 
 def duplicate_bug_fix(dataset_split):
     buggy_texts = list(dataset_split["buggy"])
@@ -85,13 +100,13 @@ def compute_metrics(eval_pred):
 #Training args and trainer definition
 training_args = TrainingArguments(
     output_dir=dir_name,
-    run_name="AdamW",
-    num_train_epochs=30,
-    per_device_train_batch_size=4,
+    run_name="AdamW", #changing for different runs - AdaFactor/AdamW
+    num_train_epochs=5,
+    per_device_train_batch_size=32,
     per_device_eval_batch_size=8,
     gradient_accumulation_steps=2,
-    learning_rate=1e-5,
-    weight_decay=0.01,
+    learning_rate=2e-5,
+    weight_decay=0.03,
     warmup_ratio=0.1,
     fp16=True,
     eval_strategy="epoch",
@@ -99,8 +114,9 @@ training_args = TrainingArguments(
     load_best_model_at_end=True,
     metric_for_best_model="f1",
     greater_is_better=True,
-    logging_steps=1000,
-    seed=42,
+    logging_steps=10,
+    save_total_limit = 2,
+    seed=custom_seed
 )
 
 trainer = Trainer(
@@ -110,7 +126,7 @@ trainer = Trainer(
     eval_dataset=eval_dataset,
     tokenizer=tokenizer,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=5)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=8)],
 )
 
 # Training
@@ -133,7 +149,21 @@ print("Test results:", test_metrics)
 
 
 #SAVING INFORMATION
+# Saving results to txt files
+#validation results for the final model
+with open(os.path.join(dir_name,"training_results.txt"), "w", encoding="utf-8") as f:
+    f.write(str(train_results))
+#validation results for the final model
+with open(os.path.join(dir_name,"validation_results.txt"), "w", encoding="utf-8") as f:
+    f.write(str(eval_results))
+#test results for the final model
+with open(os.path.join(dir_name,"test_results.txt"), "w", encoding="utf-8") as f:
+    f.write(str(test_metrics))
 
+print("Saved validation and test results separately.")
+
+#everything below is commented for short experiment runs
+'''
 #saving model and tokenizer
 best_model_dir = os.path.join(dir_name, "best_model")
 os.makedirs(best_model_dir, exist_ok=True)
@@ -148,19 +178,6 @@ with open(os.path.join(best_model_dir, "current_model_info.txt"), "w", encoding=
 #Saving best model checkpoint info
 with open(os.path.join(best_model_dir,"best_model_checkpoint.txt"), "w") as f:
     f.write(trainer.state.best_model_checkpoint)
-
-# Saving results to txt files
-#validation results for the final model
-with open(os.path.join(dir_name,"training_results.txt"), "w", encoding="utf-8") as f:
-    f.write(str(train_results))
-#validation results for the final model
-with open(os.path.join(dir_name,"validation_results.txt"), "w", encoding="utf-8") as f:
-    f.write(str(eval_results))
-#test results for the final model
-with open(os.path.join(dir_name,"test_results.txt"), "w", encoding="utf-8") as f:
-    f.write(str(test_metrics))
-
-print("Saved validation and test results separately.")
 
 # Saving logs
 df = pd.DataFrame(trainer.state.log_history)
@@ -252,5 +269,5 @@ disp_test.plot(cmap="Greens")
 plt.title("Macierz pomyłek dla zbioru testowego")
 plt.savefig(os.path.join(dir_name,"confusion_matrix_test.png"))
 plt.close()
-
+'''
 print("Code finished successfully, everything should be saved.")
