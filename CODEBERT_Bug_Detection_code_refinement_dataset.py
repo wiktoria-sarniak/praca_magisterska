@@ -16,9 +16,9 @@ import random
 
 
 #creating a directory to store the results for the current run
-#current_time = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-#dir_name = f"run_{current_time}"
-dir_name = "exp_18"
+current_time = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+dir_name = f"run_{current_time}"
+#dir_name = "exp_37"
 dir_name = os.path.join("results", dir_name)
 os.makedirs(dir_name, exist_ok=True)
 
@@ -51,6 +51,27 @@ small_train = dataset["train"].shuffle(seed=42).select(range(800))
 small_eval  = dataset["validation"].shuffle(seed=42).select(range(100))
 small_test  = dataset["test"].shuffle(seed=42).select(range(100))
 
+def filter_long_examples(example):
+    max_len = 256
+    return (
+        len(tokenizer.tokenize(example["buggy"])) <= max_len
+        and len(tokenizer.tokenize(example["fixed"])) <= max_len
+    )
+
+# filter before mapping
+print("sizes")
+print(small_train)
+print(small_eval)
+print(small_test)
+small_train = small_train.filter(filter_long_examples)
+small_eval = small_eval.filter(filter_long_examples)
+small_test = small_test.filter(filter_long_examples)
+
+print("sizes after removal")
+print(small_train)
+print(small_eval)
+print(small_test)
+
 def duplicate_bug_fix(dataset_split):
     buggy_texts = list(dataset_split["buggy"])
     fixed_texts = list(dataset_split["fixed"])
@@ -69,7 +90,9 @@ eval_dataset  = duplicate_bug_fix(small_eval)
 test_dataset  = duplicate_bug_fix(small_test)
 
 def preprocess(examples):
-    return tokenizer(examples["code"], truncation=True, padding="max_length", max_length=256)
+    preprocessed_data = tokenizer(examples["code"], truncation=True, padding="max_length", max_length=256)
+    preprocessed_data["labels"] = examples["labels"]
+    return preprocessed_data
 
 train_dataset = train_dataset.map(preprocess, batched=True, load_from_cache_file=False)
 eval_dataset  = eval_dataset.map(preprocess,  batched=True, load_from_cache_file=False)
@@ -83,7 +106,6 @@ cols = ["input_ids", "attention_mask", "labels"]
 train_dataset.set_format(type="torch", columns=cols)
 eval_dataset.set_format(type="torch", columns=cols)
 test_dataset.set_format(type="torch", columns=cols)
-
 
 
 #Setting metrics
@@ -100,9 +122,9 @@ def compute_metrics(eval_pred):
 #Training args and trainer definition
 training_args = TrainingArguments(
     output_dir=dir_name,
-    run_name="AdamW", #changing for different runs - AdaFactor/AdamW
-    num_train_epochs=5,
-    per_device_train_batch_size=32,
+    optim = "adamw_torch", #changing for different runs - adafactor/adamw_torch
+    num_train_epochs=10,
+    per_device_train_batch_size=4,
     per_device_eval_batch_size=8,
     gradient_accumulation_steps=2,
     learning_rate=2e-5,
@@ -112,9 +134,9 @@ training_args = TrainingArguments(
     eval_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
-    metric_for_best_model="f1",
+    metric_for_best_model="accuracy",
     greater_is_better=True,
-    logging_steps=10,
+    logging_steps=512,
     save_total_limit = 2,
     seed=custom_seed
 )
@@ -126,7 +148,7 @@ trainer = Trainer(
     eval_dataset=eval_dataset,
     tokenizer=tokenizer,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=8)],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
 )
 
 # Training
@@ -163,7 +185,7 @@ with open(os.path.join(dir_name,"test_results.txt"), "w", encoding="utf-8") as f
 print("Saved validation and test results separately.")
 
 #everything below is commented for short experiment runs
-'''
+
 #saving model and tokenizer
 best_model_dir = os.path.join(dir_name, "best_model")
 os.makedirs(best_model_dir, exist_ok=True)
@@ -269,5 +291,5 @@ disp_test.plot(cmap="Greens")
 plt.title("Macierz pomyłek dla zbioru testowego")
 plt.savefig(os.path.join(dir_name,"confusion_matrix_test.png"))
 plt.close()
-'''
+
 print("Code finished successfully, everything should be saved.")
